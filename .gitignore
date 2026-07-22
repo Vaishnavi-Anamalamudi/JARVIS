@@ -1,0 +1,14 @@
+.idea/
+.vscode/
+*.iml
+
+backend/target/
+frontend/dist/
+frontend/node_modules/
+
+.env
+.env.*
+!.env.example
+
+*.log
+*.tmp

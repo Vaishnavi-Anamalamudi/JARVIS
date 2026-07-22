@@ -1,0 +1,124 @@
+server:
+  port: ${SERVER_PORT}
+  shutdown: graceful
+
+spring:
+  application:
+    name: adaptive-api-gateway
+  datasource:
+    url: ${POSTGRES_JDBC_URL}
+    username: ${POSTGRES_USERNAME}
+    password: ${POSTGRES_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${POSTGRES_POOL_MAX_SIZE}
+      minimum-idle: ${POSTGRES_POOL_MIN_IDLE}
+      connection-timeout: ${POSTGRES_CONNECTION_TIMEOUT_MS}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+  data:
+    redis:
+      url: ${REDIS_URL}
+      timeout: ${REDIS_COMMAND_TIMEOUT_MS}ms
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: ${KAFKA_PRODUCER_RETRIES}
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  main:
+    web-application-type: reactive
+
+adaptive-gateway:
+  service-name: ${ADAPTIVE_GATEWAY_SERVICE_NAME}
+  api-version: ${ADAPTIVE_GATEWAY_API_VERSION}
+  auth:
+    admin-role-name: ${ADAPTIVE_GATEWAY_ADMIN_ROLE_NAME}
+    jwt:
+      issuer: ${JWT_ISSUER}
+      secret-base64: ${JWT_SECRET_BASE64}
+      access-token-ttl-minutes: ${JWT_ACCESS_TOKEN_TTL_MINUTES}
+      refresh-token-ttl-days: ${JWT_REFRESH_TOKEN_TTL_DAYS}
+  redis:
+    key-prefix: ${ADAPTIVE_GATEWAY_REDIS_KEY_PREFIX}
+    session-cache-ttl-minutes: ${REDIS_SESSION_CACHE_TTL_MINUTES}
+    temporary-stats-ttl-minutes: ${REDIS_TEMPORARY_STATS_TTL_MINUTES}
+  kafka:
+    default-topic: ${KAFKA_DEFAULT_TOPIC}
+    request-events-topic: ${KAFKA_REQUEST_EVENTS_TOPIC}
+    health-topic: ${KAFKA_HEALTH_TOPIC}
+    event-schema-version: ${KAFKA_EVENT_SCHEMA_VERSION}
+    publish-timeout-ms: ${KAFKA_PUBLISH_TIMEOUT_MS}
+    retry-delay-seconds: ${KAFKA_RETRY_DELAY_SECONDS}
+    max-attempts: ${KAFKA_MAX_ATTEMPTS}
+    outbox-batch-size: ${KAFKA_OUTBOX_BATCH_SIZE}
+    outbox-poll-interval-ms: ${KAFKA_OUTBOX_POLL_INTERVAL_MS}
+  adaptive-learning:
+    metric-window-seconds: ${ADAPTIVE_LEARNING_METRIC_WINDOW_SECONDS}
+    aggregation-interval-ms: ${ADAPTIVE_LEARNING_AGGREGATION_INTERVAL_MS}
+    minimum-requests-for-adjustment: ${ADAPTIVE_LEARNING_MIN_REQUESTS_FOR_ADJUSTMENT}
+    blocked-rate-relax-threshold: ${ADAPTIVE_LEARNING_BLOCKED_RATE_RELAX_THRESHOLD}
+    error-rate-tighten-threshold: ${ADAPTIVE_LEARNING_ERROR_RATE_TIGHTEN_THRESHOLD}
+    max-error-rate-for-relaxation: ${ADAPTIVE_LEARNING_MAX_ERROR_RATE_FOR_RELAXATION}
+    strictness-adjustment-step: ${ADAPTIVE_LEARNING_STRICTNESS_ADJUSTMENT_STEP}
+    min-strictness-factor: ${ADAPTIVE_LEARNING_MIN_STRICTNESS_FACTOR}
+    max-strictness-factor: ${ADAPTIVE_LEARNING_MAX_STRICTNESS_FACTOR}
+  anomaly-detection:
+    lookback-minutes: ${ANOMALY_LOOKBACK_MINUTES}
+    minimum-samples: ${ANOMALY_MINIMUM_SAMPLES}
+    z-score-threshold: ${ANOMALY_Z_SCORE_THRESHOLD}
+    threshold-stddev-multiplier: ${ANOMALY_THRESHOLD_STDDEV_MULTIPLIER}
+    ema-alpha: ${ANOMALY_EMA_ALPHA}
+    detection-interval-ms: ${ANOMALY_DETECTION_INTERVAL_MS}
+    strictness-increase-step: ${ANOMALY_STRICTNESS_INCREASE_STEP}
+    max-strictness-factor: ${ANOMALY_MAX_STRICTNESS_FACTOR}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    db:
+      enabled: true
+    redis:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [%X{correlationId:-}] %logger{36} - %msg%n"
+  level:
+    root: INFO
+    com.adaptivegateway: INFO
+    org.springframework.cloud.gateway: INFO
+    org.hibernate.SQL: WARN

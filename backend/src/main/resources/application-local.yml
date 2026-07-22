@@ -1,0 +1,17 @@
+server:
+  port: ${SERVER_PORT}
+
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: ${POSTGRES_JDBC_URL}
+    username: ${POSTGRES_USERNAME}
+    password: ${POSTGRES_PASSWORD}
+  jpa:
+    show-sql: false
+
+logging:
+  level:
+    com.adaptivegateway: DEBUG

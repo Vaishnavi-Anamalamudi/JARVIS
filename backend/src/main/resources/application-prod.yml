@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${POSTGRES_JDBC_URL}
+    username: ${POSTGRES_USERNAME}
+    password: ${POSTGRES_PASSWORD}
+
+logging:
+  level:
+    root: INFO
+    com.adaptivegateway: INFO

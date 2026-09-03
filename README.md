@@ -1,63 +1,217 @@
-# Adaptive API Gateway with Traffic-Aware Rate Limiting
+# Adaptive Gateway Platform
 
-Production-grade engineering project for an adaptive API gateway using Spring Boot, Spring Cloud Gateway, PostgreSQL, Redis, Kafka, WebSocket updates, and a React TypeScript dashboard.
+## Overview
 
-## Current Status
+Adaptive Gateway Platform is a production-style API gateway and security operations console for teams that need traffic-aware rate limiting, live operational visibility, anomaly detection, and auditable administration.
 
-Phase 1 is complete in this workspace: project architecture has been defined in `docs/phase-01-project-architecture.md`.
+The project preserves the original adaptive API gateway idea and turns it into a deployable modular monolith: Spring Boot and Spring Cloud Gateway enforce routes and policies, PostgreSQL stores the system of record, Redis backs low-latency counters and session cache data, Kafka records operational events through an outbox flow, and a React TypeScript console gives administrators a live control surface.
 
-Phase 2 is complete in this workspace: database design has been defined in `docs/phase-02-database-design.md`, and the PostgreSQL Flyway migration is available at `backend/src/main/resources/db/migration/V1__initial_database_schema.sql`.
+## Problem Statement
 
-Phase 3 is complete in this workspace: backend foundation has been defined in `docs/phase-03-backend-foundation.md`, with the Spring Boot project under `backend/`.
+Static API limits are often too rigid for real gateway traffic. They either block good clients during bursts or allow suspicious traffic until an operator manually investigates. Engineering teams also need traceable configuration changes, health checks, request history, and meaningful analytics without stitching together disconnected scripts.
 
-Phase 4 is complete in this workspace: authentication has been defined in `docs/phase-04-authentication.md`, with PostgreSQL-backed auth code under `backend/src/main/java/com/adaptivegateway/auth` and security code under `backend/src/main/java/com/adaptivegateway/security`.
+## Solution
 
-Phase 5 is complete in this workspace: gateway routing has been defined in `docs/phase-05-gateway.md`, with PostgreSQL-backed gateway configuration and dynamic Spring Cloud Gateway route loading under `backend/src/main/java/com/adaptivegateway/gateway`.
+Adaptive Gateway Platform combines dynamic gateway configuration, Redis-backed rate-limit enforcement, persisted request decisions, analytics rollups, adaptive policy adjustments, anomaly detection, alerts, WebSocket live events, and an authenticated admin UI.
 
-Phase 6 is complete in this workspace: Redis integration has been defined in `docs/phase-06-redis-integration.md`, with Redis health, namespaced keys, auth session caching, and temporary stats services under `backend/src/main/java/com/adaptivegateway/redis`.
+## Key Features
 
-Phase 7 is complete in this workspace: Kafka integration has been defined in `docs/phase-07-kafka-integration.md`, with Kafka producer health, request event publishing, and PostgreSQL-backed event outbox code under `backend/src/main/java/com/adaptivegateway/kafka`.
+- JWT authentication with refresh tokens, BCrypt password hashing, and role-based admin access.
+- PostgreSQL-backed upstream services, gateway routes, route predicates, policies, assignments, request logs, decisions, analytics, anomalies, alerts, and audit logs.
+- Spring Cloud Gateway route loading from database configuration.
+- Redis sliding-window rate-limit counters and session cache utilities.
+- Kafka event publishing with a PostgreSQL outbox record.
+- Adaptive learning that evaluates recent request history and adjusts policy strictness.
+- Anomaly detection using persisted route metrics, rolling statistic snapshots, severity classification, and alert creation.
+- Alert acknowledgement and resolution with audit records and live UI refresh.
+- React TypeScript operations console with dashboard, gateway, rate-limit, consumer, operations, analytics, adaptive learning, and anomaly screens.
+- WebSocket live event stream for request, analytics, adaptive, anomaly, alert, and audit updates.
+- Docker Compose runtime for PostgreSQL, Redis, Kafka, backend, and frontend.
+- GitHub Actions CI for backend tests, frontend audit/build, and Compose config validation.
 
-Phase 8 is complete in this workspace: rate limiting has been defined in `docs/phase-08-rate-limiter.md`, with PostgreSQL-backed policies and assignments, Redis counters, gateway enforcement, request logs, decision persistence, and Kafka decision events under `backend/src/main/java/com/adaptivegateway/ratelimit`.
+## Architecture
 
-Phase 9 is complete in this workspace: adaptive learning has been defined in `docs/phase-09-adaptive-learning.md`, with request-log aggregation, route metrics, heatmap buckets, strictness adjustments, and Kafka adjustment events under `backend/src/main/java/com/adaptivegateway/adaptive`.
+```mermaid
+flowchart LR
+    Browser[React Operations Console] --> Nginx[Nginx Frontend Proxy]
+    Nginx --> Backend[Spring Boot WebFlux API]
+    Backend --> Gateway[Spring Cloud Gateway]
+    Backend --> Postgres[(PostgreSQL)]
+    Backend --> Redis[(Redis)]
+    Backend --> Kafka[(Kafka)]
+    Backend --> WS[WebSocket Live Stream]
+    WS --> Browser
+    Gateway --> Upstream[Protected Upstream APIs]
+```
 
-Phase 10 is complete in this workspace: anomaly detection has been defined in `docs/phase-10-anomaly-detection.md`, with rolling statistic snapshots, anomaly records, alert creation, adaptive strictness increases, and Kafka anomaly events under `backend/src/main/java/com/adaptivegateway/anomaly` and `backend/src/main/java/com/adaptivegateway/alerts`.
+The backend follows a modular monolith layout: `auth`, `gateway`, `ratelimit`, `adaptive`, `anomaly`, `alerts`, `analytics`, `consumer`, `operations`, `redis`, `kafka`, and `live`. Each feature follows controller to service to repository boundaries with DTO mappers and validation at API edges.
 
-Phase 11 is complete in this workspace: REST API expansion has been defined in `docs/phase-11-rest-apis.md`, with API consumer management, hashed API credential management, request history APIs, and audit log APIs under `backend/src/main/java/com/adaptivegateway/consumer` and `backend/src/main/java/com/adaptivegateway/operations`.
+## Technology Stack
 
-Phase 12 is complete in this workspace: frontend has been defined in `docs/phase-12-frontend.md`, with the React TypeScript operations console, authenticated admin shell, REST-backed management screens, installed dependency toolchain, clean npm audit, and production Vite build under `frontend/`.
+Frontend: React 18, TypeScript, Vite, Material UI, Redux Toolkit, Axios, Recharts.
 
-Phase 13 is complete in this workspace: WebSocket live updates have been defined in `docs/phase-13-websocket.md`, with a JWT-protected `/api/live/ws` stream, backend live events emitted after real persistence, frontend reconnect handling, and event-aware dashboard refreshes.
+Backend: Java 21, Spring Boot 4, Spring WebFlux, Spring Security, Spring Cloud Gateway, JPA/Hibernate, Flyway, Springdoc OpenAPI.
 
-Phase 14 is complete in this workspace: analytics has been defined in `docs/phase-14-analytics.md`, with PostgreSQL-backed rollup and client metric generation, admin analytics REST APIs, live analytics events, and a dedicated React analytics screen.
+Database: PostgreSQL 16 with Flyway migrations, UUID primary keys, constraints, indexes, soft deletion, and audit tables.
 
-Phase 15 is complete in this workspace: deployment has been defined in `docs/phase-15-deployment.md`, with Dockerfiles, Docker Compose, environment templates, Nginx REST/WebSocket proxying, health checks, CI, and a smoke-test script.
+Messaging/cache: Redis 7, Kafka 3.7.
 
-The planned phase sequence is now complete. Full container runtime verification requires Docker Desktop or another Docker Engine to be running.
+DevOps: Docker, Docker Compose, Nginx, GitHub Actions.
 
-## Required Phase Order
+## Screenshots
 
-1. Project Architecture
-2. Database Design
-3. Backend Foundation
-4. Authentication
-5. Gateway
-6. Redis Integration
-7. Kafka Integration
-8. Rate Limiter
-9. Adaptive Learning Module
-10. Anomaly Detection
-11. REST APIs
-12. Frontend
-13. WebSocket
-14. Analytics
-15. Deployment
+Screenshots are not committed yet because runtime visual capture requires the Docker stack to be running. The UI entrypoint is the authenticated operations console served by the frontend container.
 
-## Architecture Rule
+## System Workflow
 
-Every runtime feature must follow this connection path:
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant UI as React Console
+    participant API as Spring API
+    participant DB as PostgreSQL
+    participant Redis
+    participant Kafka
+    participant Live as WebSocket
 
-Database -> Repository -> Service -> Business Logic -> REST API -> Frontend -> Live UI
+    Admin->>UI: Create route, policy, consumer, or run analysis
+    UI->>API: Authenticated REST request
+    API->>DB: Validate and persist state
+    API->>Redis: Update counters/session data where needed
+    API->>Kafka: Write/publish operational event
+    API->>Live: Emit live event
+    Live-->>UI: Refresh affected dashboard panels
+```
 
-Redis, Kafka, and WebSocket integrations are added only in their scheduled phases and then wired into completed features through verified, working paths.
+## AI/ML
+
+The project uses explainable statistical intelligence instead of an unnecessary chatbot. Adaptive learning calculates route metrics from real request logs, builds traffic heatmap buckets, and creates strictness adjustments. Anomaly detection uses rolling statistics and z-score style thresholds to identify spikes, persist anomaly records, create alerts, and tighten affected policy strictness where appropriate.
+
+## Cybersecurity
+
+- BCrypt password hashes and durable refresh tokens stored as SHA-256 hashes.
+- JWT access tokens signed with an environment-provided base64 secret.
+- RBAC enforced through Spring Security authorities.
+- Bean validation on request DTOs and pagination bounds.
+- Global error envelopes with correlation IDs.
+- Soft deletion for operational records.
+- Credential generation uses `SecureRandom`; only credential hashes are stored.
+- Secrets are configured through environment variables and `.env` is ignored.
+
+## API Documentation
+
+OpenAPI is available from the running backend:
+
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+
+See [docs/api.md](docs/api.md) for the main endpoint groups.
+
+## Database
+
+The schema is managed by Flyway at `backend/src/main/resources/db/migration/V1__initial_database_schema.sql`. It includes authentication, gateway configuration, rate limiting, analytics, adaptive learning, anomaly detection, alerts, Kafka outbox, and audit tables.
+
+See [docs/database.md](docs/database.md).
+
+## Installation
+
+Prerequisites:
+
+- Java 21+
+- Maven 3.9+ or the included Maven Wrapper
+- Node.js 22+
+- Docker Desktop or another Docker Engine for full runtime verification
+
+## Environment Variables
+
+Copy `.env.example` to `.env` for local Docker execution and replace local-only secrets before any shared deployment:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Important variables include `POSTGRES_PASSWORD`, `JWT_SECRET_BASE64`, `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`, and exposed service ports.
+
+## Running Locally
+
+Backend tests:
+
+```powershell
+cd backend
+.\mvnw.cmd test
+```
+
+Frontend build:
+
+```powershell
+cd frontend
+npm ci
+npm run build
+```
+
+Full stack:
+
+```powershell
+docker compose --env-file .env up --build
+```
+
+Then open `http://localhost:8088`.
+
+## Docker Setup
+
+`docker-compose.yml` starts PostgreSQL, Redis, Kafka, the backend, and the frontend. The frontend Nginx config proxies `/api` and WebSocket traffic to the backend container.
+
+Run the deployment smoke test after the stack is healthy:
+
+```powershell
+.\scripts\deployment-smoke-test.ps1
+```
+
+## Testing
+
+Current automated checks:
+
+- Backend unit/service tests with Maven Surefire.
+- Frontend TypeScript and production Vite build.
+- Frontend dependency audit in CI.
+- Docker Compose config validation in CI.
+
+## CI/CD
+
+GitHub Actions workflow: `.github/workflows/ci.yml`
+
+Pipeline stages:
+
+- Backend Java 21 setup and `./mvnw -B test`.
+- Frontend Node 22 setup, `npm ci`, `npm audit --audit-level=moderate`, and `npm run build`.
+- Docker Compose configuration validation with `.env.example`.
+
+## Deployment
+
+For local deployment, use Docker Compose. For cloud deployment, run PostgreSQL, Redis, Kafka, backend, and frontend as managed services or containers, provide production secrets through the platform secret manager, and expose the frontend behind TLS.
+
+See [docs/deployment.md](docs/deployment.md).
+
+## Security
+
+Read [SECURITY.md](SECURITY.md) before publishing. Do not commit `.env`, private certificates, tokens, database dumps, or generated build artifacts.
+
+## Performance
+
+The runtime uses Redis for gateway-rate counters, database indexes for request and alert lookups, pagination for large lists, and asynchronous/live event paths where appropriate. Obvious bottlenecks are documented in [docs/development.md](docs/development.md).
+
+## Future Enhancements
+
+- End-to-end browser tests for the highest-value admin workflows.
+- Prometheus/Grafana dashboard bundle for production metrics.
+- Container image vulnerability scanning in CI once a registry target is chosen.
+- Multi-role operator permissions beyond the current administrator console.
+- Cloud deployment manifests for a selected target platform.
+
+## Contributors
+
+Maintained as a final-year engineering project and portfolio-grade gateway platform.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

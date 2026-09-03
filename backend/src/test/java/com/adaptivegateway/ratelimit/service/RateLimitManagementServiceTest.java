@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import com.adaptivegateway.common.exception.BusinessException;
 import com.adaptivegateway.common.exception.ErrorCode;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.dto.RateLimitPolicyRequest;
 import com.adaptivegateway.ratelimit.enums.RateLimitAlgorithm;
 import com.adaptivegateway.ratelimit.enums.RateLimitPolicyStatus;
@@ -32,6 +33,9 @@ class RateLimitManagementServiceTest {
     @Mock
     private GatewayRouteRepository routeRepository;
 
+    @Mock
+    private LiveEventService liveEventService;
+
     private RateLimitManagementService service;
 
     @BeforeEach
@@ -40,7 +44,8 @@ class RateLimitManagementServiceTest {
                 policyRepository,
                 assignmentRepository,
                 routeRepository,
-                new RateLimitMapper()
+                new RateLimitMapper(),
+                liveEventService
         );
     }
 

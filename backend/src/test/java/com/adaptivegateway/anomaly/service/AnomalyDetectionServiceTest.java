@@ -18,6 +18,7 @@ import com.adaptivegateway.anomaly.repository.AnomalyRecordRepository;
 import com.adaptivegateway.anomaly.repository.AnomalyStatSnapshotRepository;
 import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.kafka.service.KafkaEventPublisherService;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.repository.RateLimitAssignmentRepository;
 import com.adaptivegateway.ratelimit.repository.RateLimitPolicyRepository;
 import java.math.BigDecimal;
@@ -58,6 +59,9 @@ class AnomalyDetectionServiceTest {
     @Mock
     private KafkaEventPublisherService kafkaEventPublisherService;
 
+    @Mock
+    private LiveEventService liveEventService;
+
     private AnomalyDetectionService service;
 
     @BeforeEach
@@ -81,7 +85,8 @@ class AnomalyDetectionServiceTest {
                 policyRepository,
                 adjustmentRepository,
                 kafkaEventPublisherService,
-                new AnomalyDetectionMapper()
+                new AnomalyDetectionMapper(),
+                liveEventService
         );
     }
 
@@ -96,6 +101,7 @@ class AnomalyDetectionServiceTest {
                 ));
         when(snapshotRepository.save(any(AnomalyStatSnapshot.class))).thenAnswer(invocation -> withId(invocation.getArgument(0)));
         when(anomalyRecordRepository.save(any(AnomalyRecord.class))).thenAnswer(invocation -> withId(invocation.getArgument(0)));
+        when(alertRepository.save(any(Alert.class))).thenAnswer(invocation -> withId(invocation.getArgument(0)));
         when(assignmentRepository.findActiveAdaptiveRouteAssignments(any())).thenReturn(List.of());
 
         var response = service.runDetectionCycle();

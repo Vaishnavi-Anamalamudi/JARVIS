@@ -15,6 +15,7 @@ import com.adaptivegateway.adaptive.repository.TrafficHeatmapBucketRepository;
 import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
 import com.adaptivegateway.kafka.service.KafkaEventPublisherService;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.entity.RateLimitAssignment;
 import com.adaptivegateway.ratelimit.entity.RateLimitPolicy;
 import com.adaptivegateway.ratelimit.enums.RateLimitAlgorithm;
@@ -60,6 +61,9 @@ class AdaptiveLearningServiceTest {
     @Mock
     private KafkaEventPublisherService kafkaEventPublisherService;
 
+    @Mock
+    private LiveEventService liveEventService;
+
     private AdaptiveLearningService service;
 
     @BeforeEach
@@ -83,7 +87,8 @@ class AdaptiveLearningServiceTest {
                 assignmentRepository,
                 policyRepository,
                 adjustmentRepository,
-                kafkaEventPublisherService
+                kafkaEventPublisherService,
+                liveEventService
         );
     }
 

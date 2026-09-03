@@ -70,7 +70,8 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
-                                "/webjars/**"
+                                "/webjars/**",
+                                "/api/live/ws"
                         ).permitAll()
                         .pathMatchers("/api/auth/users").hasAuthority(adminAuthority)
                         .pathMatchers("/api/gateway/**").hasAuthority(adminAuthority)
@@ -79,6 +80,7 @@ public class SecurityConfig {
                         .pathMatchers("/api/adaptive-learning/**").hasAuthority(adminAuthority)
                         .pathMatchers("/api/anomalies/**").hasAuthority(adminAuthority)
                         .pathMatchers("/api/alerts/**").hasAuthority(adminAuthority)
+                        .pathMatchers("/api/analytics/**").hasAuthority(adminAuthority)
                         .pathMatchers("/api/consumers/**").hasAuthority(adminAuthority)
                         .pathMatchers("/api/operations/**").hasAuthority(adminAuthority)
                         .anyExchange().authenticated())

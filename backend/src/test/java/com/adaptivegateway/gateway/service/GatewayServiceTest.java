@@ -15,6 +15,7 @@ import com.adaptivegateway.gateway.enums.UpstreamServiceStatus;
 import com.adaptivegateway.gateway.mapper.GatewayMapper;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
 import com.adaptivegateway.gateway.repository.UpstreamServiceRepository;
+import com.adaptivegateway.live.service.LiveEventService;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +40,9 @@ class GatewayServiceTest {
     @Mock
     private GatewayRouteRefreshService routeRefreshService;
 
+    @Mock
+    private LiveEventService liveEventService;
+
     @Test
     void createRoutePersistsCanonicalPathAndMethodPredicates() {
         UpstreamService upstream = upstream("orders-api", "https://orders.example.com");
@@ -50,7 +54,8 @@ class GatewayServiceTest {
                 upstreamServiceRepository,
                 gatewayRouteRepository,
                 new GatewayMapper(),
-                routeRefreshService
+                routeRefreshService,
+                liveEventService
         );
 
         service.createRoute(new GatewayRouteRequest(

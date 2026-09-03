@@ -3,6 +3,7 @@ package com.adaptivegateway.alerts.entity;
 import com.adaptivegateway.alerts.enums.AlertSeverity;
 import com.adaptivegateway.alerts.enums.AlertStatus;
 import com.adaptivegateway.anomaly.entity.AnomalyRecord;
+import com.adaptivegateway.auth.entity.AppUser;
 import com.adaptivegateway.gateway.entity.GatewayRoute;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -53,6 +54,10 @@ public class Alert {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private AlertStatus status;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "acknowledged_by_user_id")
+    private AppUser acknowledgedByUser;
 
     @Column(name = "acknowledged_at")
     private Instant acknowledgedAt;
@@ -129,12 +134,28 @@ public class Alert {
         this.status = status;
     }
 
+    public AppUser getAcknowledgedByUser() {
+        return acknowledgedByUser;
+    }
+
+    public void setAcknowledgedByUser(AppUser acknowledgedByUser) {
+        this.acknowledgedByUser = acknowledgedByUser;
+    }
+
     public Instant getAcknowledgedAt() {
         return acknowledgedAt;
     }
 
+    public void setAcknowledgedAt(Instant acknowledgedAt) {
+        this.acknowledgedAt = acknowledgedAt;
+    }
+
     public Instant getResolvedAt() {
         return resolvedAt;
+    }
+
+    public void setResolvedAt(Instant resolvedAt) {
+        this.resolvedAt = resolvedAt;
     }
 
     public Instant getCreatedAt() {

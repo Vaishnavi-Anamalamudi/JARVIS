@@ -6,6 +6,7 @@ import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
 import com.adaptivegateway.kafka.dto.KafkaEventRequest;
 import com.adaptivegateway.kafka.service.KafkaEventPublisherService;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.dto.RateLimitEvaluation;
 import com.adaptivegateway.ratelimit.dto.RateLimitRuntimeDecision;
 import com.adaptivegateway.ratelimit.dto.RedisRateLimitResult;
@@ -52,6 +53,7 @@ public class RateLimitRuntimeService {
     private final RateLimitDecisionRepository decisionRepository;
     private final RedisRateLimitCounterService counterService;
     private final KafkaEventPublisherService kafkaEventPublisherService;
+    private final LiveEventService liveEventService;
 
     public RateLimitRuntimeService(
             GatewayRouteRepository routeRepository,
@@ -60,7 +62,8 @@ public class RateLimitRuntimeService {
             RequestLogRepository requestLogRepository,
             RateLimitDecisionRepository decisionRepository,
             RedisRateLimitCounterService counterService,
-            KafkaEventPublisherService kafkaEventPublisherService
+            KafkaEventPublisherService kafkaEventPublisherService,
+            LiveEventService liveEventService
     ) {
         this.routeRepository = routeRepository;
         this.assignmentRepository = assignmentRepository;
@@ -69,6 +72,7 @@ public class RateLimitRuntimeService {
         this.decisionRepository = decisionRepository;
         this.counterService = counterService;
         this.kafkaEventPublisherService = kafkaEventPublisherService;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional(readOnly = true)
@@ -101,6 +105,7 @@ public class RateLimitRuntimeService {
         RequestLog savedLog = requestLogRepository.save(requestLog);
         evaluation.decisionOptional().ifPresent(decision -> saveDecision(savedLog, decision));
         evaluation.decisionOptional().ifPresent(decision -> publishDecisionEvent(savedLog, evaluation.route(), decision, exchange));
+        emitRequestCompleted(savedLog, evaluation, statusCode);
     }
 
     private RateLimitRuntimeDecision decide(RateLimitAssignment assignment, String identifier) {
@@ -233,6 +238,32 @@ public class RateLimitRuntimeService {
         } catch (RuntimeException exception) {
             log.warn("Rate limit Kafka decision event publication failed: routeKey={}", route.getRouteKey(), exception);
         }
+    }
+
+    private void emitRequestCompleted(RequestLog requestLog, RateLimitEvaluation evaluation, int statusCode) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("requestLogId", requestLog.getId().toString());
+        payload.put("routeId", evaluation.route().getId().toString());
+        payload.put("routeKey", evaluation.route().getRouteKey());
+        payload.put("requestMethod", requestLog.getRequestMethod());
+        payload.put("requestPath", requestLog.getRequestPath());
+        payload.put("gatewayOutcome", requestLog.getGatewayOutcome().name());
+        payload.put("statusCode", statusCode);
+        payload.put("responseTimeMs", requestLog.getResponseTimeMs());
+        evaluation.decisionOptional().ifPresent(decision -> {
+            payload.put("rateLimitDecision", decision.decision().name());
+            payload.put("effectiveLimit", decision.effectiveLimit());
+            payload.put("observedCount", decision.observedCount());
+            payload.put("remainingTokens", decision.remainingTokens());
+        });
+        liveEventService.emit(
+                "gateway.request.completed",
+                "request_log",
+                requestLog.getId(),
+                requestLog.getCorrelationId(),
+                "Gateway request completed",
+                payload
+        );
     }
 
     private int effectiveLimit(Integer configuredLimit, RateLimitPolicy policy) {

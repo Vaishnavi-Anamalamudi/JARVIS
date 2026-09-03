@@ -2,6 +2,7 @@ package com.adaptivegateway.operations.service;
 
 import com.adaptivegateway.auth.repository.AppUserRepository;
 import com.adaptivegateway.common.web.CorrelationIdFilter;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.operations.entity.AuditLog;
 import com.adaptivegateway.operations.repository.AuditLogRepository;
 import java.net.InetAddress;
@@ -19,10 +20,16 @@ public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;
     private final AppUserRepository appUserRepository;
+    private final LiveEventService liveEventService;
 
-    public AuditLogService(AuditLogRepository auditLogRepository, AppUserRepository appUserRepository) {
+    public AuditLogService(
+            AuditLogRepository auditLogRepository,
+            AppUserRepository appUserRepository,
+            LiveEventService liveEventService
+    ) {
         this.auditLogRepository = auditLogRepository;
         this.appUserRepository = appUserRepository;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -49,7 +56,20 @@ public class AuditLogService {
         auditLog.setIpAddress(sourceIp(exchange));
         auditLog.setUserAgent(exchange.getRequest().getHeaders().getFirst("User-Agent"));
         auditLog.setMetadata(metadata == null ? Map.of() : new LinkedHashMap<>(metadata));
-        auditLogRepository.save(auditLog);
+        AuditLog saved = auditLogRepository.save(auditLog);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("auditLogId", saved.getId() == null ? null : saved.getId().toString());
+        payload.put("action", action);
+        payload.put("resourceType", resourceType);
+        payload.put("resourceId", resourceId == null ? null : resourceId.toString());
+        liveEventService.emit(
+                "gateway.audit.logged",
+                resourceType,
+                resourceId,
+                saved.getCorrelationId(),
+                "Audit log recorded",
+                payload
+        );
     }
 
     private UUID correlationId(ServerWebExchange exchange) {

@@ -17,6 +17,7 @@ import com.adaptivegateway.gateway.enums.UpstreamServiceStatus;
 import com.adaptivegateway.gateway.mapper.GatewayMapper;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
 import com.adaptivegateway.gateway.repository.UpstreamServiceRepository;
+import com.adaptivegateway.live.service.LiveEventService;
 import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -40,17 +41,20 @@ public class GatewayManagementService {
     private final GatewayRouteRepository gatewayRouteRepository;
     private final GatewayMapper gatewayMapper;
     private final GatewayRouteRefreshService routeRefreshService;
+    private final LiveEventService liveEventService;
 
     public GatewayManagementService(
             UpstreamServiceRepository upstreamServiceRepository,
             GatewayRouteRepository gatewayRouteRepository,
             GatewayMapper gatewayMapper,
-            GatewayRouteRefreshService routeRefreshService
+            GatewayRouteRefreshService routeRefreshService,
+            LiveEventService liveEventService
     ) {
         this.upstreamServiceRepository = upstreamServiceRepository;
         this.gatewayRouteRepository = gatewayRouteRepository;
         this.gatewayMapper = gatewayMapper;
         this.routeRefreshService = routeRefreshService;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional(readOnly = true)
@@ -84,6 +88,7 @@ public class GatewayManagementService {
         apply(request, upstreamService);
         UpstreamService saved = upstreamServiceRepository.save(upstreamService);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("UPSTREAM_CREATED", "upstream_service", saved.getId(), saved.getName());
         return gatewayMapper.toResponse(saved);
     }
 
@@ -99,6 +104,7 @@ public class GatewayManagementService {
         apply(request, upstreamService);
         UpstreamService saved = upstreamServiceRepository.save(upstreamService);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("UPSTREAM_UPDATED", "upstream_service", saved.getId(), saved.getName());
         return gatewayMapper.toResponse(saved);
     }
 
@@ -108,6 +114,7 @@ public class GatewayManagementService {
         upstreamService.setDeletedAt(Instant.now());
         upstreamServiceRepository.save(upstreamService);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("UPSTREAM_DELETED", "upstream_service", upstreamService.getId(), upstreamService.getName());
     }
 
     @Transactional(readOnly = true)
@@ -142,6 +149,7 @@ public class GatewayManagementService {
         apply(request, route);
         GatewayRoute saved = gatewayRouteRepository.save(route);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("ROUTE_CREATED", "gateway_route", saved.getId(), saved.getRouteKey());
         return gatewayMapper.toResponse(saved);
     }
 
@@ -158,6 +166,7 @@ public class GatewayManagementService {
         apply(request, route);
         GatewayRoute saved = gatewayRouteRepository.save(route);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("ROUTE_UPDATED", "gateway_route", saved.getId(), saved.getRouteKey());
         return gatewayMapper.toResponse(saved);
     }
 
@@ -167,6 +176,7 @@ public class GatewayManagementService {
         route.setDeletedAt(Instant.now());
         gatewayRouteRepository.save(route);
         routeRefreshService.refreshRoutes();
+        emitGatewayChange("ROUTE_DELETED", "gateway_route", route.getId(), route.getRouteKey());
     }
 
     private void apply(UpstreamServiceRequest request, UpstreamService upstreamService) {
@@ -274,6 +284,22 @@ public class GatewayManagementService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private void emitGatewayChange(String action, String resourceType, UUID resourceId, String name) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", action);
+        payload.put("resourceType", resourceType);
+        payload.put("resourceId", resourceId == null ? null : resourceId.toString());
+        payload.put("name", name);
+        liveEventService.emit(
+                "gateway.config.changed",
+                resourceType,
+                resourceId,
+                null,
+                "Gateway configuration changed",
+                payload
+        );
     }
 
     private PageRequest pageRequest(

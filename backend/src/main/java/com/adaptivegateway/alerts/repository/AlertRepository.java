@@ -10,15 +10,18 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AlertRepository extends JpaRepository<Alert, UUID> {
 
-    @EntityGraph(attributePaths = {"anomalyRecord", "route"})
+    @EntityGraph(attributePaths = {"anomalyRecord", "route", "acknowledgedByUser"})
+    java.util.Optional<Alert> findByIdAndDeletedAtIsNull(UUID id);
+
+    @EntityGraph(attributePaths = {"anomalyRecord", "route", "acknowledgedByUser"})
     Page<Alert> findByDeletedAtIsNull(Pageable pageable);
 
-    @EntityGraph(attributePaths = {"anomalyRecord", "route"})
+    @EntityGraph(attributePaths = {"anomalyRecord", "route", "acknowledgedByUser"})
     Page<Alert> findByStatusAndDeletedAtIsNull(AlertStatus status, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"anomalyRecord", "route"})
+    @EntityGraph(attributePaths = {"anomalyRecord", "route", "acknowledgedByUser"})
     Page<Alert> findByRouteIdAndDeletedAtIsNull(UUID routeId, Pageable pageable);
 
-    @EntityGraph(attributePaths = {"anomalyRecord", "route"})
+    @EntityGraph(attributePaths = {"anomalyRecord", "route", "acknowledgedByUser"})
     Page<Alert> findByStatusAndRouteIdAndDeletedAtIsNull(AlertStatus status, UUID routeId, Pageable pageable);
 }

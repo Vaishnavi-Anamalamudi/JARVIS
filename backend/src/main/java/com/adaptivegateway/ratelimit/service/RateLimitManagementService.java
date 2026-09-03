@@ -5,6 +5,7 @@ import com.adaptivegateway.common.exception.ErrorCode;
 import com.adaptivegateway.common.pagination.PageResponse;
 import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.dto.RateLimitAssignmentRequest;
 import com.adaptivegateway.ratelimit.dto.RateLimitAssignmentResponse;
 import com.adaptivegateway.ratelimit.dto.RateLimitPolicyRequest;
@@ -18,7 +19,9 @@ import com.adaptivegateway.ratelimit.mapper.RateLimitMapper;
 import com.adaptivegateway.ratelimit.repository.RateLimitAssignmentRepository;
 import com.adaptivegateway.ratelimit.repository.RateLimitPolicyRepository;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -35,17 +38,20 @@ public class RateLimitManagementService {
     private final RateLimitAssignmentRepository assignmentRepository;
     private final GatewayRouteRepository routeRepository;
     private final RateLimitMapper mapper;
+    private final LiveEventService liveEventService;
 
     public RateLimitManagementService(
             RateLimitPolicyRepository policyRepository,
             RateLimitAssignmentRepository assignmentRepository,
             GatewayRouteRepository routeRepository,
-            RateLimitMapper mapper
+            RateLimitMapper mapper,
+            LiveEventService liveEventService
     ) {
         this.policyRepository = policyRepository;
         this.assignmentRepository = assignmentRepository;
         this.routeRepository = routeRepository;
         this.mapper = mapper;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +83,9 @@ public class RateLimitManagementService {
         }
         RateLimitPolicy policy = new RateLimitPolicy();
         apply(request, policy);
-        return mapper.toResponse(policyRepository.save(policy));
+        RateLimitPolicy saved = policyRepository.save(policy);
+        emitRateLimitChange("POLICY_CREATED", "rate_limit_policy", saved.getId(), saved.getName());
+        return mapper.toResponse(saved);
     }
 
     @Transactional
@@ -89,7 +97,9 @@ public class RateLimitManagementService {
             throw new BusinessException(ErrorCode.RESOURCE_CONFLICT, "Rate limit policy name is already registered");
         }
         apply(request, policy);
-        return mapper.toResponse(policyRepository.save(policy));
+        RateLimitPolicy saved = policyRepository.save(policy);
+        emitRateLimitChange("POLICY_UPDATED", "rate_limit_policy", saved.getId(), saved.getName());
+        return mapper.toResponse(saved);
     }
 
     @Transactional
@@ -97,6 +107,7 @@ public class RateLimitManagementService {
         RateLimitPolicy policy = findPolicy(id);
         policy.setDeletedAt(Instant.now());
         policyRepository.save(policy);
+        emitRateLimitChange("POLICY_DELETED", "rate_limit_policy", policy.getId(), policy.getName());
     }
 
     @Transactional(readOnly = true)
@@ -124,7 +135,9 @@ public class RateLimitManagementService {
         validateAssignment(request);
         RateLimitAssignment assignment = new RateLimitAssignment();
         apply(request, assignment);
-        return mapper.toResponse(assignmentRepository.save(assignment));
+        RateLimitAssignment saved = assignmentRepository.save(assignment);
+        emitRateLimitChange("ASSIGNMENT_CREATED", "rate_limit_assignment", saved.getId(), saved.getRoute().getRouteKey());
+        return mapper.toResponse(saved);
     }
 
     @Transactional
@@ -132,7 +145,9 @@ public class RateLimitManagementService {
         validateAssignment(request);
         RateLimitAssignment assignment = findAssignment(id);
         apply(request, assignment);
-        return mapper.toResponse(assignmentRepository.save(assignment));
+        RateLimitAssignment saved = assignmentRepository.save(assignment);
+        emitRateLimitChange("ASSIGNMENT_UPDATED", "rate_limit_assignment", saved.getId(), saved.getRoute().getRouteKey());
+        return mapper.toResponse(saved);
     }
 
     @Transactional
@@ -140,6 +155,7 @@ public class RateLimitManagementService {
         RateLimitAssignment assignment = findAssignment(id);
         assignment.setDeletedAt(Instant.now());
         assignmentRepository.save(assignment);
+        emitRateLimitChange("ASSIGNMENT_DELETED", "rate_limit_assignment", assignment.getId(), assignment.getRoute().getRouteKey());
     }
 
     private void apply(RateLimitPolicyRequest request, RateLimitPolicy policy) {
@@ -196,6 +212,22 @@ public class RateLimitManagementService {
     private GatewayRoute findRoute(UUID id) {
         return routeRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Gateway route does not exist"));
+    }
+
+    private void emitRateLimitChange(String action, String resourceType, UUID resourceId, String name) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", action);
+        payload.put("resourceType", resourceType);
+        payload.put("resourceId", resourceId == null ? null : resourceId.toString());
+        payload.put("name", name);
+        liveEventService.emit(
+                "gateway.rate_limit.changed",
+                resourceType,
+                resourceId,
+                null,
+                "Rate limit configuration changed",
+                payload
+        );
     }
 
     private PageRequest pageRequest(

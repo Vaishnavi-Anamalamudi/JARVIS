@@ -15,6 +15,8 @@ public record AlertResponse(
         String title,
         String message,
         AlertStatus status,
+        UUID acknowledgedByUserId,
+        String acknowledgedByUsername,
         Instant acknowledgedAt,
         Instant resolvedAt,
         Instant createdAt,

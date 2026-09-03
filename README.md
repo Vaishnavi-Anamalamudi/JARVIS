@@ -26,7 +26,15 @@ Phase 10 is complete in this workspace: anomaly detection has been defined in `d
 
 Phase 11 is complete in this workspace: REST API expansion has been defined in `docs/phase-11-rest-apis.md`, with API consumer management, hashed API credential management, request history APIs, and audit log APIs under `backend/src/main/java/com/adaptivegateway/consumer` and `backend/src/main/java/com/adaptivegateway/operations`.
 
-No frontend application, WebSocket integration, analytics screens, or deployment runtime has been generated yet. Those will be created phase by phase, only after review and confirmation.
+Phase 12 is complete in this workspace: frontend has been defined in `docs/phase-12-frontend.md`, with the React TypeScript operations console, authenticated admin shell, REST-backed management screens, installed dependency toolchain, clean npm audit, and production Vite build under `frontend/`.
+
+Phase 13 is complete in this workspace: WebSocket live updates have been defined in `docs/phase-13-websocket.md`, with a JWT-protected `/api/live/ws` stream, backend live events emitted after real persistence, frontend reconnect handling, and event-aware dashboard refreshes.
+
+Phase 14 is complete in this workspace: analytics has been defined in `docs/phase-14-analytics.md`, with PostgreSQL-backed rollup and client metric generation, admin analytics REST APIs, live analytics events, and a dedicated React analytics screen.
+
+Phase 15 is complete in this workspace: deployment has been defined in `docs/phase-15-deployment.md`, with Dockerfiles, Docker Compose, environment templates, Nginx REST/WebSocket proxying, health checks, CI, and a smoke-test script.
+
+The planned phase sequence is now complete. Full container runtime verification requires Docker Desktop or another Docker Engine to be running.
 
 ## Required Phase Order
 

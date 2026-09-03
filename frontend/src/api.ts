@@ -41,11 +41,31 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export async function requestData<T>(method: 'get' | 'post' | 'put' | 'delete', url: string, body?: unknown): Promise<T> {
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const requestUrl = String(error.config?.url ?? '');
+    if (error.response?.status === 401 && !requestUrl.includes('/api/auth/login')) {
+      localStorage.removeItem(storageKey);
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export async function requestData<T>(
+  method: 'get' | 'post' | 'put' | 'delete',
+  url: string,
+  body?: unknown,
+  options?: { signal?: AbortSignal }
+): Promise<T> {
   const response = await api.request<ApiEnvelope<T>>({
     method,
     url,
-    data: body
+    data: body,
+    signal: options?.signal
   });
   return response.data.data;
 }
@@ -57,4 +77,12 @@ export function apiErrorMessage(error: unknown): string {
     return payload.message;
   }
   return axiosError.message || 'Request failed';
+}
+
+export function liveWebSocketUrl(accessToken: string): string {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+  const url = new URL('/api/live/ws', baseUrl);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('access_token', accessToken);
+  return url.toString();
 }

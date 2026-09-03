@@ -23,6 +23,7 @@ import com.adaptivegateway.common.pagination.PageResponse;
 import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.kafka.dto.KafkaEventRequest;
 import com.adaptivegateway.kafka.service.KafkaEventPublisherService;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.entity.RateLimitAssignment;
 import com.adaptivegateway.ratelimit.entity.RateLimitPolicy;
 import com.adaptivegateway.ratelimit.repository.RateLimitAssignmentRepository;
@@ -63,6 +64,7 @@ public class AnomalyDetectionService {
     private final RateLimitAdjustmentRepository adjustmentRepository;
     private final KafkaEventPublisherService kafkaEventPublisherService;
     private final AnomalyDetectionMapper mapper;
+    private final LiveEventService liveEventService;
 
     public AnomalyDetectionService(
             AnomalyDetectionProperties properties,
@@ -74,7 +76,8 @@ public class AnomalyDetectionService {
             RateLimitPolicyRepository policyRepository,
             RateLimitAdjustmentRepository adjustmentRepository,
             KafkaEventPublisherService kafkaEventPublisherService,
-            AnomalyDetectionMapper mapper
+            AnomalyDetectionMapper mapper,
+            LiveEventService liveEventService
     ) {
         this.properties = properties;
         this.routeMetricRepository = routeMetricRepository;
@@ -86,6 +89,7 @@ public class AnomalyDetectionService {
         this.adjustmentRepository = adjustmentRepository;
         this.kafkaEventPublisherService = kafkaEventPublisherService;
         this.mapper = mapper;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional
@@ -112,15 +116,31 @@ public class AnomalyDetectionService {
                 if (result.anomalous()) {
                     AnomalyRecord anomaly = anomalyRecordRepository.save(toAnomaly(snapshot, result));
                     anomalies++;
-                    alertRepository.save(toAlert(anomaly));
+                    Alert alert = alertRepository.save(toAlert(anomaly));
                     alerts++;
                     adjustments += tightenAdaptivePolicies(anomaly);
                     publishAnomaly(anomaly);
+                    emitAnomaly(anomaly, alert);
                 }
             }
         }
 
-        return new AnomalyDetectionRunResponse(evaluatedSince, metrics.size(), snapshots, anomalies, alerts, adjustments);
+        AnomalyDetectionRunResponse response = new AnomalyDetectionRunResponse(evaluatedSince, metrics.size(), snapshots, anomalies, alerts, adjustments);
+        liveEventService.emit(
+                "gateway.anomaly.run_completed",
+                "anomaly_detection",
+                null,
+                null,
+                "Anomaly detection cycle completed",
+                Map.of(
+                        "routeMetricsEvaluated", metrics.size(),
+                        "statisticSnapshotsCreated", snapshots,
+                        "anomaliesCreated", anomalies,
+                        "alertsCreated", alerts,
+                        "strictnessAdjustmentsWritten", adjustments
+                )
+        );
+        return response;
     }
 
     @Scheduled(fixedDelayString = "${adaptive-gateway.anomaly-detection.detection-interval-ms}")
@@ -275,6 +295,28 @@ public class AnomalyDetectionService {
         } catch (RuntimeException exception) {
             log.warn("Anomaly Kafka event publication failed: anomalyId={}", anomaly.getId(), exception);
         }
+    }
+
+    private void emitAnomaly(AnomalyRecord anomaly, Alert alert) {
+        GatewayRoute route = anomaly.getRoute();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("anomalyId", anomaly.getId().toString());
+        payload.put("alertId", alert.getId() == null ? null : alert.getId().toString());
+        payload.put("routeId", route.getId().toString());
+        payload.put("routeKey", route.getRouteKey());
+        payload.put("severity", anomaly.getSeverity().name());
+        payload.put("metricName", anomaly.getMetricName());
+        payload.put("observedValue", anomaly.getObservedValue());
+        payload.put("thresholdValue", anomaly.getThresholdValue());
+        payload.put("zScore", anomaly.getZScore());
+        liveEventService.emit(
+                "gateway.anomaly.detected",
+                "anomaly_record",
+                anomaly.getId(),
+                null,
+                "Anomaly detected",
+                payload
+        );
     }
 
     private AnomalySeverity severity(BigDecimal zScore) {

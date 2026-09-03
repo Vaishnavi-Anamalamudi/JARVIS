@@ -4,17 +4,21 @@ import {
   AutoGraph,
   Brightness4,
   Brightness7,
-  Delete,
+  CheckCircle,
+  DoneAll,
   Key,
   Logout,
   ManageAccounts,
   Menu as MenuIcon,
+  QueryStats,
   Refresh,
   Router,
   Security,
   Speed,
   Timeline,
-  WarningAmber
+  WarningAmber,
+  Wifi,
+  WifiOff
 } from '@mui/icons-material';
 import {
   Alert,
@@ -56,15 +60,26 @@ import {
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { apiErrorMessage, requestData, type PageResponse } from './api';
+import { apiErrorMessage, liveWebSocketUrl, requestData, type PageResponse } from './api';
 import { signedIn, signedOut, themeToggled, userLoaded, type RootState } from './store';
 import { useDispatch, useSelector } from 'react-redux';
 
 type AnyRecord = Record<string, unknown>;
 type Toast = { type: 'success' | 'error'; message: string };
 type LoadState<T> = { data: T | null; loading: boolean; error: string | null };
+type LiveStatus = 'offline' | 'connecting' | 'connected' | 'reconnecting';
+type LiveEvent = {
+  id: string;
+  type: string;
+  resourceType?: string;
+  resourceId?: string;
+  correlationId?: string;
+  message?: string;
+  payload?: AnyRecord;
+  createdAt: string;
+};
 
 const drawerWidth = 248;
 const pageSize = 20;
@@ -75,6 +90,7 @@ const navItems = [
   { label: 'Rate Limits', path: '/rate-limits', icon: <Speed /> },
   { label: 'Consumers', path: '/consumers', icon: <ManageAccounts /> },
   { label: 'Operations', path: '/operations', icon: <Timeline /> },
+  { label: 'Analytics', path: '/analytics', icon: <QueryStats /> },
   { label: 'Adaptive', path: '/adaptive', icon: <AutoGraph /> },
   { label: 'Anomalies', path: '/anomalies', icon: <WarningAmber /> }
 ];
@@ -119,21 +135,43 @@ function formatDate(value: unknown): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function formatPercent(value: unknown): string {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) {
+    return '-';
+  }
+  return `${(numeric * 100).toFixed(1)}%`;
+}
+
 function statusColor(value: unknown): 'default' | 'success' | 'warning' | 'error' | 'info' {
   const normalized = String(value ?? '').toUpperCase();
-  if (['ACTIVE', 'ALLOW', 'HEALTHY', 'LOW', 'PUBLISHED'].includes(normalized)) {
+  if (['ACTIVE', 'ALLOW', 'HEALTHY', 'LOW', 'PUBLISHED', 'RESOLVED'].includes(normalized)) {
     return 'success';
   }
   if (['INACTIVE', 'REVOKED', 'DISABLED', 'BLOCK'].includes(normalized)) {
     return 'error';
   }
-  if (['MEDIUM', 'PENDING', 'DEGRADED'].includes(normalized)) {
+  if (['MEDIUM', 'PENDING', 'DEGRADED', 'ACKNOWLEDGED'].includes(normalized)) {
     return 'warning';
   }
   if (['HIGH', 'CRITICAL'].includes(normalized)) {
     return 'error';
   }
   return 'default';
+}
+
+function liveStatusColor(status: LiveStatus): 'default' | 'success' | 'warning' {
+  if (status === 'connected') {
+    return 'success';
+  }
+  if (status === 'connecting' || status === 'reconnecting') {
+    return 'warning';
+  }
+  return 'default';
+}
+
+function liveStatusLabel(status: LiveStatus): string {
+  return status === 'connected' ? 'Live' : status === 'offline' ? 'Offline' : 'Connecting';
 }
 
 function useEndpoint<T>(url: string, active = true): LoadState<T> & { refresh: () => Promise<void> } {
@@ -159,17 +197,70 @@ function useEndpoint<T>(url: string, active = true): LoadState<T> & { refresh: (
   return { ...state, refresh };
 }
 
+function useLiveEvents(accessToken: string | null): { status: LiveStatus; lastEvent: LiveEvent | null } {
+  const [status, setStatus] = useState<LiveStatus>(accessToken ? 'connecting' : 'offline');
+  const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null);
+
+  useEffect(() => {
+    if (!accessToken) {
+      setStatus('offline');
+      setLastEvent(null);
+      return;
+    }
+
+    const token = accessToken;
+    let closed = false;
+    let reconnectTimer: number | undefined;
+    let socket: WebSocket | undefined;
+
+    function connect() {
+      setStatus((current) => current === 'connected' ? 'connected' : 'connecting');
+      socket = new WebSocket(liveWebSocketUrl(token));
+      socket.onopen = () => setStatus('connected');
+      socket.onmessage = (message) => {
+        try {
+          setLastEvent(JSON.parse(message.data) as LiveEvent);
+        } catch {
+          // Ignore malformed live messages; the next valid event will update the UI.
+        }
+      };
+      socket.onerror = () => setStatus('reconnecting');
+      socket.onclose = () => {
+        if (closed) {
+          return;
+        }
+        setStatus('reconnecting');
+        reconnectTimer = window.setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      socket?.close();
+    };
+  }, [accessToken]);
+
+  return { status, lastEvent };
+}
+
 function DataPanel<T extends AnyRecord>({
   title,
   columns,
   state,
   actions,
+  rowActions,
   empty = 'No records returned.'
 }: {
   title: string;
   columns: { key: keyof T & string; label: string; date?: boolean; chip?: boolean }[];
   state: LoadState<PageResponse<T> | T[]>;
   actions?: React.ReactNode;
+  rowActions?: (row: T) => React.ReactNode;
   empty?: string;
 }) {
   const rows = pageContent<T>(state.data);
@@ -201,6 +292,7 @@ function DataPanel<T extends AnyRecord>({
                 {columns.map((column) => (
                   <TableCell key={column.key}>{column.label}</TableCell>
                 ))}
+                {rowActions && <TableCell align="right">Actions</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -214,6 +306,7 @@ function DataPanel<T extends AnyRecord>({
                       </TableCell>
                     );
                   })}
+                  {rowActions && <TableCell align="right">{rowActions(row)}</TableCell>}
                 </TableRow>
               ))}
             </TableBody>
@@ -342,13 +435,18 @@ function Shell() {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
+  const accessToken = useAppSelector((state) => state.auth.accessToken);
+  const refreshToken = useAppSelector((state) => state.auth.refreshToken);
   const darkMode = useAppSelector((state) => state.auth.darkMode);
+  const live = useLiveEvents(accessToken);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   async function logout() {
     try {
-      await requestData('post', '/api/auth/logout');
+      if (refreshToken) {
+        await requestData('post', '/api/auth/logout', { refreshToken });
+      }
     } catch {
       // Local sign-out still clears browser state when the server token is already gone.
     }
@@ -381,6 +479,17 @@ function Shell() {
       </Stack>
       <Box sx={{ flex: 1 }} />
       <Divider />
+      <Stack sx={{ px: 1.5, pt: 1.5 }}>
+        <Tooltip title={live.lastEvent?.message ?? 'Live gateway updates'}>
+          <Chip
+            size="small"
+            color={liveStatusColor(live.status)}
+            icon={live.status === 'connected' ? <Wifi /> : <WifiOff />}
+            label={liveStatusLabel(live.status)}
+            sx={{ justifyContent: 'flex-start' }}
+          />
+        </Tooltip>
+      </Stack>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ p: 1.5 }}>
         <Tooltip title="Toggle color mode">
           <IconButton onClick={() => dispatch(themeToggled())}>
@@ -417,13 +526,14 @@ function Shell() {
         <Box component="main" sx={{ flexGrow: 1, width: { sm: `calc(100% - ${drawerWidth}px)` }, pt: { xs: 8, sm: 0 } }}>
           <Container maxWidth="xl" sx={{ py: 3 }}>
             <Routes>
-              <Route path="/dashboard" element={<Dashboard notify={setToast} />} />
-              <Route path="/gateway" element={<GatewayPage notify={setToast} />} />
-              <Route path="/rate-limits" element={<RateLimitsPage notify={setToast} />} />
-              <Route path="/consumers" element={<ConsumersPage notify={setToast} currentUserId={user?.id ?? ''} />} />
-              <Route path="/operations" element={<OperationsPage />} />
-              <Route path="/adaptive" element={<AdaptivePage notify={setToast} />} />
-              <Route path="/anomalies" element={<AnomaliesPage notify={setToast} />} />
+              <Route path="/dashboard" element={<Dashboard notify={setToast} liveEvent={live.lastEvent} />} />
+              <Route path="/gateway" element={<GatewayPage notify={setToast} liveEvent={live.lastEvent} />} />
+              <Route path="/rate-limits" element={<RateLimitsPage notify={setToast} liveEvent={live.lastEvent} />} />
+              <Route path="/consumers" element={<ConsumersPage notify={setToast} currentUserId={user?.id ?? ''} liveEvent={live.lastEvent} />} />
+              <Route path="/operations" element={<OperationsPage liveEvent={live.lastEvent} />} />
+              <Route path="/analytics" element={<AnalyticsPage notify={setToast} liveEvent={live.lastEvent} />} />
+              <Route path="/adaptive" element={<AdaptivePage notify={setToast} liveEvent={live.lastEvent} />} />
+              <Route path="/anomalies" element={<AnomaliesPage notify={setToast} liveEvent={live.lastEvent} />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Container>
@@ -436,13 +546,22 @@ function Shell() {
   );
 }
 
-function Dashboard({ notify }: { notify: (toast: Toast) => void }) {
+function Dashboard({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
   const health = useEndpoint<AnyRecord>('/api/system/health');
   const routes = useEndpoint<PageResponse<AnyRecord>>(`/api/gateway/routes?size=${pageSize}`);
   const requests = useEndpoint<PageResponse<AnyRecord>>(`/api/operations/requests?size=${pageSize}`);
   const alerts = useEndpoint<PageResponse<AnyRecord>>(`/api/alerts?size=${pageSize}`);
   const metrics = useEndpoint<PageResponse<AnyRecord>>(`/api/adaptive-learning/route-metrics?size=${pageSize}`);
   const metricRows = pageContent(metrics.data);
+
+  useEffect(() => {
+    if (!liveEvent || liveEvent.type === 'gateway.live.heartbeat') {
+      return;
+    }
+    if (['gateway.request.completed', 'gateway.config.changed', 'gateway.analytics.rollups_completed', 'gateway.analytics.client_metrics_completed', 'gateway.adaptive.run_completed', 'gateway.adaptive.strictness_adjusted', 'gateway.anomaly.detected', 'gateway.anomaly.run_completed', 'gateway.alert.acknowledged', 'gateway.alert.resolved'].includes(liveEvent.type)) {
+      void Promise.all([health.refresh(), routes.refresh(), requests.refresh(), alerts.refresh(), metrics.refresh()]);
+    }
+  }, [liveEvent, health.refresh, routes.refresh, requests.refresh, alerts.refresh, metrics.refresh]);
 
   return (
     <>
@@ -497,11 +616,17 @@ function IconButtonPanel({ onClick, icon, label }: { onClick: () => void; icon: 
   );
 }
 
-function GatewayPage({ notify }: { notify: (toast: Toast) => void }) {
+function GatewayPage({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
   const upstreams = useEndpoint<PageResponse<AnyRecord>>(`/api/gateway/upstreams?size=${pageSize}`);
   const routes = useEndpoint<PageResponse<AnyRecord>>(`/api/gateway/routes?size=${pageSize}`);
   const [upstreamOpen, setUpstreamOpen] = useState(false);
   const [routeOpen, setRouteOpen] = useState(false);
+
+  useEffect(() => {
+    if (liveEvent?.type === 'gateway.config.changed') {
+      void Promise.all([upstreams.refresh(), routes.refresh()]);
+    }
+  }, [liveEvent, upstreams.refresh, routes.refresh]);
 
   async function refreshRoutes() {
     try {
@@ -555,12 +680,18 @@ function RouteDialog({ open, upstreams, onClose, onSaved }: { open: boolean; ups
   );
 }
 
-function RateLimitsPage({ notify }: { notify: (toast: Toast) => void }) {
+function RateLimitsPage({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
   const policies = useEndpoint<PageResponse<AnyRecord>>(`/api/rate-limit/policies?size=${pageSize}`);
   const assignments = useEndpoint<PageResponse<AnyRecord>>(`/api/rate-limit/assignments?size=${pageSize}`);
   const routes = useEndpoint<PageResponse<AnyRecord>>(`/api/gateway/routes?size=${pageSize}`);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+
+  useEffect(() => {
+    if (liveEvent && ['gateway.rate_limit.changed', 'gateway.adaptive.strictness_adjusted', 'gateway.anomaly.detected'].includes(liveEvent.type)) {
+      void Promise.all([policies.refresh(), assignments.refresh()]);
+    }
+  }, [liveEvent, policies.refresh, assignments.refresh]);
 
   return (
     <>
@@ -607,11 +738,18 @@ function AssignmentDialog({ open, policies, routes, onClose, onSaved }: { open: 
   );
 }
 
-function ConsumersPage({ notify, currentUserId }: { notify: (toast: Toast) => void; currentUserId: string }) {
+function ConsumersPage({ notify, currentUserId, liveEvent }: { notify: (toast: Toast) => void; currentUserId: string; liveEvent: LiveEvent | null }) {
   const consumers = useEndpoint<PageResponse<AnyRecord>>(`/api/consumers?size=${pageSize}`);
   const [consumerOpen, setConsumerOpen] = useState(false);
   const [credentialOpen, setCredentialOpen] = useState(false);
   const [rawKey, setRawKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const action = String(liveEvent?.payload?.action ?? '');
+    if (liveEvent?.type === 'gateway.audit.logged' && action.startsWith('API_')) {
+      void consumers.refresh();
+    }
+  }, [liveEvent, consumers.refresh]);
 
   return (
     <>
@@ -650,16 +788,25 @@ function CredentialDialog({ open, consumers, onClose, onSaved }: { open: boolean
   );
 }
 
-function OperationsPage() {
+function OperationsPage({ liveEvent }: { liveEvent: LiveEvent | null }) {
   const [tab, setTab] = useState(0);
   const requests = useEndpoint<PageResponse<AnyRecord>>(`/api/operations/requests?size=${pageSize}`);
   const auditLogs = useEndpoint<PageResponse<AnyRecord>>(`/api/operations/audit-logs?size=${pageSize}`);
+
+  useEffect(() => {
+    if (liveEvent?.type === 'gateway.request.completed') {
+      void requests.refresh();
+    }
+    if (liveEvent?.type === 'gateway.audit.logged') {
+      void auditLogs.refresh();
+    }
+  }, [liveEvent, requests.refresh, auditLogs.refresh]);
   return (
     <>
       <PageTitle title="Operations" />
       <Paper variant="outlined" sx={{ borderRadius: 2, mb: 2 }}><Tabs value={tab} onChange={(_, value: number) => setTab(value)}><Tab label="Requests" /><Tab label="Audit" /></Tabs></Paper>
       {tab === 0 ? (
-        <DataPanel title="Gateway Requests" columns={[{ key: 'routeKey', label: 'Route' }, { key: 'method', label: 'Method' }, { key: 'path', label: 'Path' }, { key: 'responseStatus', label: 'Status' }, { key: 'outcome', label: 'Outcome', chip: true }, { key: 'createdAt', label: 'Created', date: true }]} state={requests} />
+        <DataPanel title="Gateway Requests" columns={[{ key: 'routeKey', label: 'Route' }, { key: 'requestMethod', label: 'Method' }, { key: 'requestPath', label: 'Path' }, { key: 'statusCode', label: 'Status' }, { key: 'gatewayOutcome', label: 'Outcome', chip: true }, { key: 'startedAt', label: 'Started', date: true }]} state={requests} />
       ) : (
         <DataPanel title="Audit Logs" columns={[{ key: 'actorUsername', label: 'Actor' }, { key: 'action', label: 'Action' }, { key: 'resourceType', label: 'Resource' }, { key: 'resourceId', label: 'Resource ID' }, { key: 'createdAt', label: 'Created', date: true }]} state={auditLogs} />
       )}
@@ -667,10 +814,124 @@ function OperationsPage() {
   );
 }
 
-function AdaptivePage({ notify }: { notify: (toast: Toast) => void }) {
+function AnalyticsPage({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
+  const [rollupGranularity, setRollupGranularity] = useState('HOUR');
+  const [lookbackBuckets, setLookbackBuckets] = useState(24);
+  const [clientWindowSeconds, setClientWindowSeconds] = useState(300);
+  const summary = useEndpoint<AnyRecord>('/api/analytics/summary?windowSeconds=3600');
+  const rollups = useEndpoint<PageResponse<AnyRecord>>(`/api/analytics/rollups?granularity=${rollupGranularity}&size=${pageSize}`);
+  const clientMetrics = useEndpoint<PageResponse<AnyRecord>>(`/api/analytics/client-metrics?size=${pageSize}`);
+  const rollupRows = pageContent(rollups.data);
+  const clientRows = pageContent(clientMetrics.data);
+
+  useEffect(() => {
+    if (liveEvent && ['gateway.analytics.rollups_completed', 'gateway.analytics.client_metrics_completed', 'gateway.request.completed'].includes(liveEvent.type)) {
+      void Promise.all([summary.refresh(), rollups.refresh(), clientMetrics.refresh()]);
+    }
+  }, [liveEvent, summary.refresh, rollups.refresh, clientMetrics.refresh]);
+
+  async function runRollups() {
+    try {
+      await requestData('post', `/api/analytics/rollups/run?granularity=${rollupGranularity}&lookbackBuckets=${lookbackBuckets}`);
+      await Promise.all([summary.refresh(), rollups.refresh()]);
+      notify({ type: 'success', message: 'Analytics rollups generated' });
+    } catch (error) {
+      notify({ type: 'error', message: apiErrorMessage(error) });
+    }
+  }
+
+  async function runClientMetrics() {
+    try {
+      await requestData('post', `/api/analytics/client-metrics/run?windowSeconds=${clientWindowSeconds}`);
+      await Promise.all([summary.refresh(), clientMetrics.refresh()]);
+      notify({ type: 'success', message: 'Client metrics generated' });
+    } catch (error) {
+      notify({ type: 'error', message: apiErrorMessage(error) });
+    }
+  }
+
+  return (
+    <>
+      <PageTitle
+        title="Analytics"
+        action={
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+            <SelectField label="Rollup" value={rollupGranularity} values={['MINUTE', 'HOUR', 'DAY']} onChange={setRollupGranularity} />
+            <TextField label="Buckets" type="number" value={lookbackBuckets} onChange={(event) => setLookbackBuckets(Number(event.target.value))} sx={{ width: { xs: '100%', md: 120 } }} />
+            <Button variant="contained" onClick={runRollups} startIcon={<QueryStats />}>Run Rollups</Button>
+            <TextField label="Client window" type="number" value={clientWindowSeconds} onChange={(event) => setClientWindowSeconds(Number(event.target.value))} sx={{ width: { xs: '100%', md: 150 } }} />
+            <Button variant="outlined" onClick={runClientMetrics} startIcon={<Refresh />}>Run Clients</Button>
+          </Stack>
+        }
+      />
+      <Box className="grid gap-3 md:grid-cols-4" sx={{ mb: 3 }}>
+        <Stat label="Requests" value={summary.loading ? 'Loading' : shortValue(summary.data?.totalRequests ?? 0)} />
+        <Stat label="Blocked" value={summary.loading ? 'Loading' : formatPercent(summary.data?.blockedRate)} />
+        <Stat label="Errors" value={summary.loading ? 'Loading' : formatPercent(summary.data?.errorRate)} />
+        <Stat label="P95 Latency" value={summary.loading ? 'Loading' : `${shortValue(summary.data?.p95ResponseTimeMs ?? 0)} ms`} />
+      </Box>
+      <Box className="grid gap-3 xl:grid-cols-2">
+        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, minHeight: 320 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>Rollup Volume</Typography>
+          {rollups.loading ? (
+            <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 240 }}><CircularProgress size={28} /></Stack>
+          ) : rollups.error ? (
+            <Alert severity="error">{rollups.error}</Alert>
+          ) : rollupRows.length === 0 ? (
+            <Box sx={{ color: 'text.secondary', py: 9 }}>No rollups returned.</Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={rollupRows.slice().reverse().map((row) => ({ bucket: formatDate(row.bucketStart), allowed: Number(row.allowedRequests ?? 0), blocked: Number(row.blockedRequests ?? 0), errors: Number(row.errorRequests ?? 0) }))}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="bucket" hide />
+                <YAxis />
+                <ChartTooltip />
+                <Bar dataKey="allowed" stackId="requests" fill="#1f6feb" />
+                <Bar dataKey="blocked" stackId="requests" fill="#d97706" />
+                <Bar dataKey="errors" stackId="requests" fill="#dc2626" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Paper>
+        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, minHeight: 320 }}>
+          <Typography variant="h6" sx={{ mb: 2 }}>Client Health</Typography>
+          {clientMetrics.loading ? (
+            <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 240 }}><CircularProgress size={28} /></Stack>
+          ) : clientMetrics.error ? (
+            <Alert severity="error">{clientMetrics.error}</Alert>
+          ) : clientRows.length === 0 ? (
+            <Box sx={{ color: 'text.secondary', py: 9 }}>No client metrics returned.</Box>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={clientRows.slice().reverse().map((row) => ({ client: shortValue(row.consumerName ?? row.consumerId), rps: Number(row.requestsPerSecond ?? 0), blocked: Number(row.blockedRate ?? 0), errors: Number(row.errorRate ?? 0) }))}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="client" />
+                <YAxis />
+                <ChartTooltip />
+                <Line type="monotone" dataKey="rps" stroke="#1f6feb" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="blocked" stroke="#d97706" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="errors" stroke="#dc2626" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Paper>
+        <DataPanel title="Analytics Rollups" columns={[{ key: 'bucketStart', label: 'Bucket', date: true }, { key: 'granularity', label: 'Granularity', chip: true }, { key: 'routeKey', label: 'Route' }, { key: 'consumerName', label: 'Consumer' }, { key: 'totalRequests', label: 'Requests' }, { key: 'blockedRate', label: 'Blocked' }, { key: 'errorRate', label: 'Errors' }, { key: 'p95ResponseTimeMs', label: 'P95 ms' }]} state={rollups} />
+        <DataPanel title="Client Metrics" columns={[{ key: 'consumerName', label: 'Consumer' }, { key: 'calculatedAt', label: 'Calculated', date: true }, { key: 'requestsPerSecond', label: 'RPS' }, { key: 'blockedRate', label: 'Blocked' }, { key: 'errorRate', label: 'Errors' }, { key: 'avgLatencyMs', label: 'Avg ms' }]} state={clientMetrics} />
+      </Box>
+    </>
+  );
+}
+
+function AdaptivePage({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
   const metrics = useEndpoint<PageResponse<AnyRecord>>(`/api/adaptive-learning/route-metrics?size=${pageSize}`);
   const heatmap = useEndpoint<PageResponse<AnyRecord>>(`/api/adaptive-learning/traffic-heatmap?size=${pageSize}`);
   const adjustments = useEndpoint<PageResponse<AnyRecord>>(`/api/adaptive-learning/adjustments?size=${pageSize}`);
+
+  useEffect(() => {
+    if (liveEvent && ['gateway.adaptive.run_completed', 'gateway.adaptive.strictness_adjusted', 'gateway.request.completed'].includes(liveEvent.type)) {
+      void Promise.all([metrics.refresh(), heatmap.refresh(), adjustments.refresh()]);
+    }
+  }, [liveEvent, metrics.refresh, heatmap.refresh, adjustments.refresh]);
 
   async function runLearning() {
     try {
@@ -694,10 +955,16 @@ function AdaptivePage({ notify }: { notify: (toast: Toast) => void }) {
   );
 }
 
-function AnomaliesPage({ notify }: { notify: (toast: Toast) => void }) {
+function AnomaliesPage({ notify, liveEvent }: { notify: (toast: Toast) => void; liveEvent: LiveEvent | null }) {
   const anomalies = useEndpoint<PageResponse<AnyRecord>>(`/api/anomalies?size=${pageSize}`);
   const snapshots = useEndpoint<PageResponse<AnyRecord>>(`/api/anomalies/snapshots?size=${pageSize}`);
   const alerts = useEndpoint<PageResponse<AnyRecord>>(`/api/alerts?size=${pageSize}`);
+
+  useEffect(() => {
+    if (liveEvent && ['gateway.anomaly.detected', 'gateway.anomaly.run_completed', 'gateway.alert.acknowledged', 'gateway.alert.resolved'].includes(liveEvent.type)) {
+      void Promise.all([anomalies.refresh(), snapshots.refresh(), alerts.refresh()]);
+    }
+  }, [liveEvent, anomalies.refresh, snapshots.refresh, alerts.refresh]);
 
   async function runDetection() {
     try {
@@ -709,13 +976,49 @@ function AnomaliesPage({ notify }: { notify: (toast: Toast) => void }) {
     }
   }
 
+  async function updateAlert(alertId: string, action: 'acknowledge' | 'resolve') {
+    try {
+      await requestData('post', `/api/alerts/${alertId}/${action}`);
+      await alerts.refresh();
+      notify({ type: 'success', message: action === 'acknowledge' ? 'Alert acknowledged' : 'Alert resolved' });
+    } catch (error) {
+      notify({ type: 'error', message: apiErrorMessage(error) });
+    }
+  }
+
   return (
     <>
       <PageTitle title="Anomalies" action={<IconButtonPanel onClick={runDetection} icon={<WarningAmber />} label="Run detection" />} />
       <Box className="grid gap-3 xl:grid-cols-2">
         <DataPanel title="Anomaly Records" columns={[{ key: 'severity', label: 'Severity', chip: true }, { key: 'routeKey', label: 'Route' }, { key: 'metricName', label: 'Metric' }, { key: 'observedValue', label: 'Observed' }, { key: 'thresholdValue', label: 'Threshold' }, { key: 'status', label: 'Status', chip: true }]} state={anomalies} />
         <DataPanel title="Stat Snapshots" columns={[{ key: 'routeKey', label: 'Route' }, { key: 'metricName', label: 'Metric' }, { key: 'meanValue', label: 'Mean' }, { key: 'standardDeviation', label: 'Std dev' }, { key: 'createdAt', label: 'Created', date: true }]} state={snapshots} />
-        <DataPanel title="Alerts" columns={[{ key: 'severity', label: 'Severity', chip: true }, { key: 'routeKey', label: 'Route' }, { key: 'message', label: 'Message' }, { key: 'createdAt', label: 'Created', date: true }]} state={alerts} />
+        <DataPanel
+          title="Alerts"
+          columns={[{ key: 'severity', label: 'Severity', chip: true }, { key: 'routeKey', label: 'Route' }, { key: 'status', label: 'Status', chip: true }, { key: 'message', label: 'Message' }, { key: 'createdAt', label: 'Created', date: true }]}
+          state={alerts}
+          rowActions={(row) => {
+            const id = String(row.id ?? '');
+            const status = String(row.status ?? '');
+            return (
+              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                <Tooltip title="Acknowledge alert">
+                  <span>
+                    <IconButton size="small" disabled={!id || status !== 'OPEN'} onClick={() => void updateAlert(id, 'acknowledge')}>
+                      <CheckCircle fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Resolve alert">
+                  <span>
+                    <IconButton size="small" disabled={!id || status === 'RESOLVED'} onClick={() => void updateAlert(id, 'resolve')}>
+                      <DoneAll fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            );
+          }}
+        />
       </Box>
     </>
   );

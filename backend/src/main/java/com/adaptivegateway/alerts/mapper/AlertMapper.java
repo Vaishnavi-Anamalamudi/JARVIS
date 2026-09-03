@@ -18,6 +18,8 @@ public class AlertMapper {
                 alert.getTitle(),
                 alert.getMessage(),
                 alert.getStatus(),
+                alert.getAcknowledgedByUser() == null ? null : alert.getAcknowledgedByUser().getId(),
+                alert.getAcknowledgedByUser() == null ? null : alert.getAcknowledgedByUser().getUsername(),
                 alert.getAcknowledgedAt(),
                 alert.getResolvedAt(),
                 alert.getCreatedAt(),

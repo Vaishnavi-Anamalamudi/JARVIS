@@ -54,6 +54,67 @@ public interface RequestLogRepository extends JpaRepository<RequestLog, UUID> {
             @Param("windowEnd") Instant windowEnd
     );
 
+    @Query(value = """
+            select
+                consumer_id as consumerId,
+                route_id as routeId,
+                count(*) as totalRequests,
+                sum(case when gateway_outcome = 'ALLOWED' then 1 else 0 end) as allowedRequests,
+                sum(case when gateway_outcome = 'BLOCKED' then 1 else 0 end) as blockedRequests,
+                sum(case when gateway_outcome = 'ERROR' then 1 else 0 end) as errorRequests,
+                avg(response_time_ms) as avgResponseTimeMs,
+                percentile_cont(0.95) within group (order by response_time_ms) as p95ResponseTimeMs,
+                count(distinct source_ip) as uniqueSourceIps
+            from request_logs
+            where deleted_at is null
+            and started_at >= :bucketStart
+            and started_at < :bucketEnd
+            group by grouping sets ((), (route_id), (consumer_id), (route_id, consumer_id))
+            """, nativeQuery = true)
+    List<AnalyticsTrafficAggregate> aggregateAnalyticsRollups(
+            @Param("bucketStart") Instant bucketStart,
+            @Param("bucketEnd") Instant bucketEnd
+    );
+
+    @Query(value = """
+            select
+                consumer_id as consumerId,
+                count(*) as totalRequests,
+                sum(case when gateway_outcome = 'ALLOWED' then 1 else 0 end) as allowedRequests,
+                sum(case when gateway_outcome = 'BLOCKED' then 1 else 0 end) as blockedRequests,
+                sum(case when gateway_outcome = 'ERROR' then 1 else 0 end) as errorRequests,
+                avg(response_time_ms) as avgLatencyMs
+            from request_logs
+            where deleted_at is null
+            and consumer_id is not null
+            and started_at >= :windowStart
+            and started_at < :windowEnd
+            group by consumer_id
+            """, nativeQuery = true)
+    List<ClientTrafficAggregate> aggregateClientTraffic(
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEnd") Instant windowEnd
+    );
+
+    @Query(value = """
+            select
+                count(*) as totalRequests,
+                coalesce(sum(case when gateway_outcome = 'ALLOWED' then 1 else 0 end), 0) as allowedRequests,
+                coalesce(sum(case when gateway_outcome = 'BLOCKED' then 1 else 0 end), 0) as blockedRequests,
+                coalesce(sum(case when gateway_outcome = 'ERROR' then 1 else 0 end), 0) as errorRequests,
+                avg(response_time_ms) as avgResponseTimeMs,
+                percentile_cont(0.95) within group (order by response_time_ms) as p95ResponseTimeMs,
+                count(distinct source_ip) as uniqueSourceIps
+            from request_logs
+            where deleted_at is null
+            and started_at >= :windowStart
+            and started_at < :windowEnd
+            """, nativeQuery = true)
+    AnalyticsSummaryAggregate summarizeTraffic(
+            @Param("windowStart") Instant windowStart,
+            @Param("windowEnd") Instant windowEnd
+    );
+
     interface RouteTrafficAggregate {
         UUID getRouteId();
 
@@ -66,5 +127,53 @@ public interface RequestLogRepository extends JpaRepository<RequestLog, UUID> {
         long getErrorRequests();
 
         BigDecimal getAvgLatencyMs();
+    }
+
+    interface AnalyticsTrafficAggregate {
+        UUID getConsumerId();
+
+        UUID getRouteId();
+
+        long getTotalRequests();
+
+        long getAllowedRequests();
+
+        long getBlockedRequests();
+
+        long getErrorRequests();
+
+        BigDecimal getAvgResponseTimeMs();
+
+        BigDecimal getP95ResponseTimeMs();
+
+        int getUniqueSourceIps();
+    }
+
+    interface ClientTrafficAggregate {
+        UUID getConsumerId();
+
+        long getTotalRequests();
+
+        long getBlockedRequests();
+
+        long getErrorRequests();
+
+        BigDecimal getAvgLatencyMs();
+    }
+
+    interface AnalyticsSummaryAggregate {
+        long getTotalRequests();
+
+        long getAllowedRequests();
+
+        long getBlockedRequests();
+
+        long getErrorRequests();
+
+        BigDecimal getAvgResponseTimeMs();
+
+        BigDecimal getP95ResponseTimeMs();
+
+        int getUniqueSourceIps();
     }
 }

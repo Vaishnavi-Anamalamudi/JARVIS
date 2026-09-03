@@ -12,6 +12,7 @@ import com.adaptivegateway.gateway.entity.GatewayRoute;
 import com.adaptivegateway.gateway.repository.GatewayRouteRepository;
 import com.adaptivegateway.kafka.dto.KafkaEventRequest;
 import com.adaptivegateway.kafka.service.KafkaEventPublisherService;
+import com.adaptivegateway.live.service.LiveEventService;
 import com.adaptivegateway.ratelimit.entity.RateLimitAssignment;
 import com.adaptivegateway.ratelimit.entity.RateLimitPolicy;
 import com.adaptivegateway.ratelimit.repository.RateLimitAssignmentRepository;
@@ -46,6 +47,7 @@ public class AdaptiveLearningService {
     private final RateLimitPolicyRepository policyRepository;
     private final RateLimitAdjustmentRepository adjustmentRepository;
     private final KafkaEventPublisherService kafkaEventPublisherService;
+    private final LiveEventService liveEventService;
 
     public AdaptiveLearningService(
             AdaptiveLearningProperties properties,
@@ -56,7 +58,8 @@ public class AdaptiveLearningService {
             RateLimitAssignmentRepository assignmentRepository,
             RateLimitPolicyRepository policyRepository,
             RateLimitAdjustmentRepository adjustmentRepository,
-            KafkaEventPublisherService kafkaEventPublisherService
+            KafkaEventPublisherService kafkaEventPublisherService,
+            LiveEventService liveEventService
     ) {
         this.properties = properties;
         this.requestLogRepository = requestLogRepository;
@@ -67,6 +70,7 @@ public class AdaptiveLearningService {
         this.policyRepository = policyRepository;
         this.adjustmentRepository = adjustmentRepository;
         this.kafkaEventPublisherService = kafkaEventPublisherService;
+        this.liveEventService = liveEventService;
     }
 
     @Transactional
@@ -77,7 +81,7 @@ public class AdaptiveLearningService {
         int routeMetrics = writeRouteMetrics(aggregates, windowEnd);
         int heatmapBuckets = writeHeatmapBuckets(windowEnd.truncatedTo(ChronoUnit.HOURS), aggregates);
         int adjustments = writeStrictnessAdjustments(aggregates, windowEnd);
-        return new AdaptiveLearningRunResponse(
+        AdaptiveLearningRunResponse response = new AdaptiveLearningRunResponse(
                 windowStart,
                 windowEnd,
                 properties.metricWindowSeconds(),
@@ -86,6 +90,20 @@ public class AdaptiveLearningService {
                 adjustments,
                 Instant.now()
         );
+        liveEventService.emit(
+                "gateway.adaptive.run_completed",
+                "adaptive_learning",
+                null,
+                null,
+                "Adaptive learning cycle completed",
+                Map.of(
+                        "routeMetricsWritten", routeMetrics,
+                        "heatmapBucketsWritten", heatmapBuckets,
+                        "strictnessAdjustmentsWritten", adjustments,
+                        "metricWindowSeconds", properties.metricWindowSeconds()
+                )
+        );
+        return response;
     }
 
     @Scheduled(fixedDelayString = "${adaptive-gateway.adaptive-learning.aggregation-interval-ms}")
@@ -179,6 +197,21 @@ public class AdaptiveLearningService {
         adjustment.setReason(reason);
         RateLimitAdjustment saved = adjustmentRepository.save(adjustment);
         publishAdjustment(saved, assignment.getRoute());
+        liveEventService.emit(
+                "gateway.adaptive.strictness_adjusted",
+                "rate_limit_adjustment",
+                saved.getId(),
+                null,
+                "Adaptive strictness adjusted",
+                Map.of(
+                        "policyId", policy.getId().toString(),
+                        "routeId", assignment.getRoute().getId().toString(),
+                        "routeKey", assignment.getRoute().getRouteKey(),
+                        "previousStrictnessFactor", previous,
+                        "newStrictnessFactor", nextStrictness,
+                        "reason", reason
+                )
+        );
     }
 
     private void publishAdjustment(RateLimitAdjustment adjustment, GatewayRoute route) {
